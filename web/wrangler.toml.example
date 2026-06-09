@@ -1,0 +1,7 @@
+name = "musicdownloader-site"
+main = "worker.js"
+compatibility_date = "2026-06-03"
+
+kv_namespaces = [
+  { binding = "MEMBERSHIPS", id = "replace-with-your-kv-namespace-id" }
+]

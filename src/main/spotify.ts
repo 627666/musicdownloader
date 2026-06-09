@@ -8,7 +8,6 @@ import zlib from "node:zlib";
 import type {
   AppSettings,
   ImportPlaylistResult,
-  KeywordSearchInput,
   LibraryImportResult,
   SpotifyAuthStatus,
   SpotifyCollectionType,
@@ -18,6 +17,11 @@ import type {
 const redirectUri = "http://127.0.0.1:43879/spotify/callback";
 const authScopes = ["playlist-read-private", "playlist-read-collaborative", "user-read-private"];
 const authFile = () => path.join(app.getPath("userData"), "spotify-auth.json");
+const bundledSpotifyClientId = process.env.MUSICDOWNLOADER_SPOTIFY_CLIENT_ID?.trim() ?? "";
+
+function spotifyClientId(settings: AppSettings): string {
+  return bundledSpotifyClientId || settings.spotifyClientId.trim();
+}
 
 interface SpotifyAuthStore {
   accessToken: string;
@@ -27,16 +31,18 @@ interface SpotifyAuthStore {
 }
 
 interface SpotifyTrackItem {
-  track?: {
-    id?: string;
+  track?: SpotifyApiTrack;
+}
+
+interface SpotifyApiTrack {
+  id?: string;
+  name?: string;
+  duration_ms?: number;
+  external_ids?: { isrc?: string };
+  artists?: Array<{ name?: string }>;
+  album?: {
     name?: string;
-    duration_ms?: number;
-    external_ids?: { isrc?: string };
-    artists?: Array<{ name: string }>;
-    album?: {
-      name?: string;
-      images?: Array<{ url: string }>;
-    };
+    images?: Array<{ url?: string }>;
   };
 }
 
@@ -56,16 +62,10 @@ interface SpotifyAlbumTrack {
   artists?: Array<{ name: string }>;
 }
 
-interface SpotifySearchTrack {
+interface SpotifyArtist {
   id?: string;
   name?: string;
-  duration_ms?: number;
-  external_ids?: { isrc?: string };
-  artists?: Array<{ name?: string }>;
-  album?: {
-    name?: string;
-    images?: Array<{ url?: string }>;
-  };
+  images?: Array<{ url?: string }>;
 }
 
 interface SpotifyEmbedEntity {
@@ -125,27 +125,41 @@ interface SpotisaverApiTrack {
 
 interface SpotisaverApiResponse {
   error?: string;
+  total?: number;
+  total_tracks?: number;
+  track_count?: number;
   playlist_info?: {
     id?: string;
     name?: string;
     type?: SpotifyCollectionType;
     images?: Array<{ url?: string }> | string[];
     external_url?: string;
+    total?: number;
+    total_tracks?: number;
+    totalTracks?: number;
+    track_count?: number;
+    trackCount?: number;
+    from_source?: string;
+    premium_loaded?: boolean;
   };
   tracks?: SpotisaverApiTrack[];
 }
 
+class IncompletePublicTrackListError extends Error {}
+
 export function parseSpotifyCollectionLink(input: string): { type: SpotifyCollectionType; id: string } {
   const trimmed = input.trim();
-  const urlMatch = trimmed.match(/open\.spotify\.com\/(playlist|album)\/([a-zA-Z0-9]+)/);
+  const urlMatch = trimmed.match(/open\.spotify\.com\/(?:intl-[a-z-]+\/)?(playlist|album|track|artist)\/([a-zA-Z0-9]+)/i);
   if (urlMatch) return { type: urlMatch[1] as SpotifyCollectionType, id: urlMatch[2] };
-  const uriMatch = trimmed.match(/spotify:(playlist|album):([a-zA-Z0-9]+)/);
+  const legacyPlaylistMatch = trimmed.match(/open\.spotify\.com\/user\/[^/]+\/playlist\/([a-zA-Z0-9]+)/i);
+  if (legacyPlaylistMatch) return { type: "playlist", id: legacyPlaylistMatch[1] };
+  const uriMatch = trimmed.match(/spotify:(playlist|album|track|artist):([a-zA-Z0-9]+)/i);
   if (uriMatch) return { type: uriMatch[1] as SpotifyCollectionType, id: uriMatch[2] };
   return { type: "playlist", id: trimmed.split("?")[0] };
 }
 
 export async function getSpotifyAuthStatus(settings: AppSettings): Promise<SpotifyAuthStatus> {
-  const needsClientId = !settings.spotifyClientId.trim();
+  const needsClientId = !spotifyClientId(settings);
   if (needsClientId) return { connected: false, needsClientId: true };
 
   const auth = await readAuth();
@@ -158,9 +172,9 @@ export async function getSpotifyAuthStatus(settings: AppSettings): Promise<Spoti
 }
 
 export async function startSpotifyLogin(settings: AppSettings): Promise<SpotifyAuthStatus> {
-  const clientId = settings.spotifyClientId.trim();
+  const clientId = spotifyClientId(settings);
   if (!clientId) {
-    throw new Error("Please enter Spotify Client ID in Settings first.");
+    throw new Error("Spotify login is not configured for this build.");
   }
 
   const verifier = base64Url(crypto.randomBytes(48));
@@ -192,37 +206,70 @@ export async function disconnectSpotify(settings: AppSettings): Promise<SpotifyA
 
 export async function importLibraryLink(input: string, settings: AppSettings): Promise<LibraryImportResult> {
   const collection = parseSpotifyCollectionLink(input);
+  let apiError: unknown;
+
+  if (spotifyClientId(settings)) {
+    try {
+      return await importSpotifyCollectionFromApi(collection, settings);
+    } catch (error) {
+      apiError = error;
+    }
+  }
+
   const publicImport = await importPublicSpotifyCollection(collection);
-  if (publicImport.result?.tracks.length) {
+  if (publicImport.result?.tracks.length && !isLikelyCappedPublicResult(publicImport.result, collection)) {
     return { ...publicImport.result, source: "spotify", collectionType: collection.type };
   }
 
   try {
-    if (collection.type === "album") {
-      const result = await importSpotifyAlbumFromApi(collection.id, settings);
-      return { ...result, source: "spotify", collectionType: "album" };
-    }
-
-    const result = await importSpotifyPlaylistFromApi(collection.id, settings);
-    return { ...result, source: "spotify", collectionType: "playlist" };
+    if (apiError) throw apiError;
+    return await importSpotifyCollectionFromApi(collection, settings);
   } catch (error) {
-    if (!settings.spotifyClientId.trim()) {
+    if (!spotifyClientId(settings)) {
       const title = await getPublicEmbedTitle(input).catch(() => undefined);
       const label = title ? `: ${title}` : "";
       const diagnostics = summarizePublicImportAttempts(publicImport.attempts);
+      if (publicImport.result?.tracks.length && isLikelyCappedPublicResult(publicImport.result, collection)) {
+        throw new Error(
+          `已识别 Spotify ${collection.type}${label}，但公开元数据源只返回了 ${publicImport.result.tracks.length} 首，疑似被截断。完整导入需要可用的 Spotify API 连接。`
+        );
+      }
       throw new Error(
-        `Recognized Spotify ${collection.type}${label}, but the app could not read its public track list. ${diagnostics}`
+        `已识别 Spotify ${collection.type}${label}，但应用无法读取公开曲目列表。${diagnostics}`
       );
     }
     throw error;
   }
 }
 
+async function importSpotifyCollectionFromApi(
+  collection: { type: SpotifyCollectionType; id: string },
+  settings: AppSettings
+): Promise<LibraryImportResult> {
+  if (collection.type === "album") {
+    const result = await importSpotifyAlbumFromApi(collection.id, settings);
+    return { ...result, source: "spotify", collectionType: "album" };
+  }
+  if (collection.type === "track") {
+    const result = await importSpotifyTrackFromApi(collection.id, settings);
+    return { ...result, source: "spotify", collectionType: "track" };
+  }
+  if (collection.type === "artist") {
+    const result = await importSpotifyArtistFromApi(collection.id, settings);
+    return { ...result, source: "spotify", collectionType: "artist" };
+  }
+
+  const result = await importSpotifyPlaylistFromApi(collection.id, settings);
+  return { ...result, source: "spotify", collectionType: "playlist" };
+}
+
 export async function importSpotifyPlaylist(input: string, settings: AppSettings): Promise<ImportPlaylistResult> {
   const playlistId = parseSpotifyCollectionLink(input).id;
   if (!playlistId) throw new Error("Please enter a Spotify playlist link or ID.");
   const publicImport = await importPublicSpotifyCollection({ type: "playlist", id: playlistId });
-  if (publicImport.result?.tracks.length) return publicImport.result;
+  if (publicImport.result?.tracks.length && !isLikelyCappedPublicResult(publicImport.result, { type: "playlist", id: playlistId })) {
+    return publicImport.result;
+  }
 
   return importSpotifyPlaylistFromApi(playlistId, settings);
 }
@@ -231,50 +278,17 @@ export async function importSpotifyAlbum(input: string, settings: AppSettings): 
   const albumId = parseSpotifyCollectionLink(input).id;
   if (!albumId) throw new Error("Please enter a Spotify album link or ID.");
   const publicImport = await importPublicSpotifyCollection({ type: "album", id: albumId });
-  if (publicImport.result?.tracks.length) return publicImport.result;
+  if (publicImport.result?.tracks.length && !isLikelyCappedPublicResult(publicImport.result, { type: "album", id: albumId })) {
+    return publicImport.result;
+  }
 
   return importSpotifyAlbumFromApi(albumId, settings);
 }
 
-export async function searchSpotifyCatalogTracks(input: KeywordSearchInput, settings: AppSettings): Promise<TrackMetadata[]> {
-  const query = buildSpotifySearchQuery(input);
-  if (!query) return [];
-
-  const token = await getValidAccessToken(settings);
-  const url = new URL("https://api.spotify.com/v1/search");
-  url.searchParams.set("type", "track");
-  url.searchParams.set("limit", "8");
-  url.searchParams.set("q", query);
-
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  if (!response.ok) throw new Error(`Spotify search failed: ${response.status}`);
-
-  const data = (await response.json()) as { tracks?: { items?: SpotifySearchTrack[] } };
-  return (data.tracks?.items ?? []).reduce<TrackMetadata[]>((acc, track, index) => {
-    if (!track.name) return acc;
-    acc.push({
-      id: track.id ?? `spotify-search-${index}`,
-      title: track.name,
-      artists: track.artists?.map((artist) => artist.name).filter((name): name is string => Boolean(name)) ?? [],
-      album: track.album?.name,
-      durationMs: track.duration_ms,
-      artworkUrl: track.album?.images?.[0]?.url,
-      isrc: track.external_ids?.isrc,
-      sourcePlaylist: "Spotify search"
-    });
-    return acc;
-  }, []);
-}
-
-function buildSpotifySearchQuery(input: KeywordSearchInput): string {
-  const parts = [
-    input.title.trim(),
-    input.artist?.trim() ? `artist:${input.artist.trim()}` : "",
-    input.album?.trim() ? `album:${input.album.trim()}` : ""
-  ].filter(Boolean);
-  return parts.join(" ").trim();
+function isLikelyCappedPublicResult(result: ImportPlaylistResult, collection: { type: SpotifyCollectionType; id: string }): boolean {
+  if (collection.type === "track") return false;
+  if (result.reportedTotal && result.tracks.length < result.reportedTotal) return true;
+  return result.tracks.length >= 100;
 }
 
 async function importSpotifyPlaylistFromApi(playlistId: string, settings: AppSettings): Promise<ImportPlaylistResult> {
@@ -305,7 +319,7 @@ async function importSpotifyPlaylistFromApi(playlistId: string, settings: AppSet
   const tracks: TrackMetadata[] = items.reduce<TrackMetadata[]>((acc, item, index) => {
     const track = item.track;
     if (!track?.name) return acc;
-    const artists = track.artists?.map((artist) => artist.name).filter(Boolean) ?? [];
+    const artists = track.artists?.map((artist) => artist.name).filter((name): name is string => Boolean(name)) ?? [];
     acc.push({
       id: track.id ?? `${playlistId}-${index}`,
       title: track.name,
@@ -370,19 +384,114 @@ async function importSpotifyAlbumFromApi(albumId: string, settings: AppSettings)
   };
 }
 
+async function importSpotifyTrackFromApi(trackId: string, settings: AppSettings): Promise<ImportPlaylistResult> {
+  const token = await getValidAccessToken(settings, "track");
+  const trackResponse = await fetch(`https://api.spotify.com/v1/tracks/${trackId}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+
+  if (!trackResponse.ok) {
+    throw new Error(`Spotify track import failed: ${trackResponse.status}`);
+  }
+
+  const track = (await trackResponse.json()) as SpotifyApiTrack;
+  const parsed = spotifyApiTrackToMetadata(track, "Spotify track", trackId, 0);
+  if (!parsed) throw new Error("Spotify track did not include a readable title.");
+
+  return {
+    playlistName: parsed.title,
+    tracks: [parsed]
+  };
+}
+
+async function importSpotifyArtistFromApi(artistId: string, settings: AppSettings): Promise<ImportPlaylistResult> {
+  const token = await getValidAccessToken(settings, "artist");
+  const [artistResponse, topTracksResponse] = await Promise.all([
+    fetch(`https://api.spotify.com/v1/artists/${artistId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }),
+    fetch(`https://api.spotify.com/v1/artists/${artistId}/top-tracks?market=US`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+  ]);
+
+  if (!artistResponse.ok) throw new Error(`Spotify artist import failed: ${artistResponse.status}`);
+  if (!topTracksResponse.ok) throw new Error(`Spotify artist tracks import failed: ${topTracksResponse.status}`);
+
+  const artist = (await artistResponse.json()) as SpotifyArtist;
+  const topTracks = (await topTracksResponse.json()) as { tracks?: SpotifyApiTrack[] };
+  const sourcePlaylist = `${artist.name ?? artistId} top tracks`;
+  const tracks = (topTracks.tracks ?? []).reduce<TrackMetadata[]>((acc, track, index) => {
+    const parsed = spotifyApiTrackToMetadata(track, sourcePlaylist, `${artistId}-${index}`, index);
+    if (parsed) acc.push(parsed);
+    return acc;
+  }, []);
+
+  return {
+    playlistName: sourcePlaylist,
+    tracks
+  };
+}
+
+function spotifyApiTrackToMetadata(track: SpotifyApiTrack, sourcePlaylist: string, fallbackId: string, index: number): TrackMetadata | null {
+  if (!track.name) return null;
+  return {
+    id: track.id ?? `${fallbackId}-${index}`,
+    title: track.name,
+    artists: track.artists?.map((artist) => artist.name).filter((name): name is string => Boolean(name)) ?? [],
+    album: track.album?.name,
+    durationMs: track.duration_ms,
+    artworkUrl: track.album?.images?.[0]?.url,
+    isrc: track.external_ids?.isrc,
+    sourcePlaylist
+  };
+}
+
+async function importPublicSpotifyTrack(collection: { type: SpotifyCollectionType; id: string }): Promise<PublicImportResult> {
+  const url = `https://open.spotify.com/track/${collection.id}`;
+  try {
+    const title = await getPublicEmbedTitle(url);
+    if (!title) throw new Error("public track title was not available");
+    const parsed = parsePublicTrackTitle(title);
+    return {
+      result: {
+        playlistName: parsed.title,
+        tracks: [
+          {
+            id: collection.id,
+            title: parsed.title,
+            artists: parsed.artists,
+            sourcePlaylist: "Spotify track"
+          }
+        ]
+      },
+      attempts: [{ url: "https://open.spotify.com/oembed", ok: true, tracks: 1 }]
+    };
+  } catch (error) {
+    return {
+      result: null,
+      attempts: [{ url: "https://open.spotify.com/oembed", ok: false, error: error instanceof Error ? error.message : String(error) }]
+    };
+  }
+}
+
+function parsePublicTrackTitle(value: string): { title: string; artists: string[] } {
+  const cleaned = value.replace(/\s*\|\s*Spotify\s*$/i, "").trim();
+  const [titlePart, artistPart] = cleaned.split(/\s+(?:song and lyrics by|song by)\s+/i);
+  if (titlePart && artistPart) return { title: titlePart.trim(), artists: artistsFromSubtitle(artistPart) };
+  const dashParts = cleaned.split(/\s+-\s+/);
+  if (dashParts.length >= 2) return { title: dashParts[0].trim(), artists: artistsFromSubtitle(dashParts.slice(1).join(" - ")) };
+  return { title: cleaned || value, artists: [] };
+}
+
 async function importPublicSpotifyCollection(collection: { type: SpotifyCollectionType; id: string }): Promise<PublicImportResult> {
   const attempts: PublicImportAttempt[] = [];
   if (!collection.id) return { result: null, attempts: [{ url: "spotify-link", ok: false, error: "missing id" }] };
-
-  for (const page of spotifyPublicPageUrls(collection)) {
-    try {
-      const html = await fetchSpotifyPublicPage(page.url);
-      const parsed = page.parser(html, collection);
-      attempts.push({ url: page.url, ok: true, length: html.length, tracks: parsed.tracks.length });
-      if (parsed.tracks.length) return { result: parsed, attempts };
-    } catch (error) {
-      attempts.push({ url: page.url, ok: false, error: error instanceof Error ? error.message : String(error) });
-    }
+  if (collection.type === "artist") {
+    return { result: null, attempts: [{ url: "spotify-public-page", ok: false, error: "artist links require Spotify login" }] };
+  }
+  if (collection.type === "track") {
+    return importPublicSpotifyTrack(collection);
   }
 
   try {
@@ -395,6 +504,24 @@ async function importPublicSpotifyCollection(collection: { type: SpotifyCollecti
       ok: false,
       error: error instanceof Error ? error.message : String(error)
     });
+    if (error instanceof IncompletePublicTrackListError) return { result: null, attempts };
+  }
+
+  const pageResults = await Promise.allSettled(
+    spotifyPublicPageUrls(collection).map(async (page) => {
+      const html = await fetchSpotifyPublicPage(page.url);
+      const parsed = page.parser(html, collection);
+      return { parsed, attempt: { url: page.url, ok: true, length: html.length, tracks: parsed.tracks.length } satisfies PublicImportAttempt };
+    })
+  );
+
+  for (const result of pageResults) {
+    if (result.status === "fulfilled") {
+      attempts.push(result.value.attempt);
+      if (result.value.parsed.tracks.length) return { result: result.value.parsed, attempts };
+    } else {
+      attempts.push({ url: "spotify-public-page", ok: false, error: result.reason instanceof Error ? result.reason.message : String(result.reason) });
+    }
   }
 
   return { result: null, attempts };
@@ -480,12 +607,47 @@ function importFromSpotisaverApi(data: SpotisaverApiResponse, collection: { type
     return acc;
   }, []);
 
-  return { playlistName, tracks };
+  const reportedTotal = spotisaverReportedTrackTotal(data);
+  if (reportedTotal && tracks.length > 0 && tracks.length < reportedTotal) {
+    throw new IncompletePublicTrackListError(
+      `public metadata returned ${tracks.length}/${reportedTotal} tracks; connect Spotify in Settings to import the complete ${collection.type}`
+    );
+  }
+  if (collection.type !== "track" && tracks.length >= 100 && data.playlist_info?.premium_loaded === false) {
+    throw new IncompletePublicTrackListError(
+      `public metadata returned ${tracks.length} tracks from a capped source; connect Spotify in Settings to import the complete ${collection.type}`
+    );
+  }
+  if (!reportedTotal && collection.type !== "track" && tracks.length >= 100) {
+    throw new IncompletePublicTrackListError(
+      `public metadata returned ${tracks.length} tracks and may be capped; connect Spotify in Settings to import the complete ${collection.type}`
+    );
+  }
+
+  return { playlistName, tracks, reportedTotal };
+}
+
+function spotisaverReportedTrackTotal(data: SpotisaverApiResponse): number | undefined {
+  const candidates = [
+    data.total_tracks,
+    data.track_count,
+    data.total,
+    data.playlist_info?.total_tracks,
+    data.playlist_info?.totalTracks,
+    data.playlist_info?.track_count,
+    data.playlist_info?.trackCount,
+    data.playlist_info?.total
+  ];
+  for (const value of candidates) {
+    const total = Number(value);
+    if (Number.isFinite(total) && total > 0) return total;
+  }
+  return undefined;
 }
 
 async function fetchSpotifyPublicPage(url: string): Promise<string> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 12_000);
+  const timeout = setTimeout(() => controller.abort(), 6_000);
 
   try {
     const response = await fetch(url, {
@@ -502,7 +664,7 @@ async function fetchSpotifyPublicPage(url: string): Promise<string> {
     if (text.length > 500) return text;
     throw new Error(`public page too small: ${text.length}`);
   } catch (error) {
-    return fetchTextWithHttps(url).catch(() => {
+    return fetchTextWithHttps(url, 2, 6_000).catch(() => {
       throw error;
     });
   } finally {
@@ -640,7 +802,8 @@ export function parseSpotisaverHtml(html: string, collection: { type: SpotifyCol
     return acc;
   }, []);
 
-  return { playlistName, tracks };
+  const reportedTotal = Number(htmlDecode(firstMatch(html, /itemprop="numTracks">([^<]+)</) ?? ""));
+  return { playlistName, tracks, reportedTotal: Number.isFinite(reportedTotal) && reportedTotal > 0 ? reportedTotal : undefined };
 }
 
 function selectSpotifyImage(images?: Array<{ url?: string; maxWidth?: number; maxHeight?: number }>): string | undefined {
@@ -699,11 +862,11 @@ function summarizePublicImportAttempts(attempts: PublicImportAttempt[]): string 
   return `Public metadata check: ${summary}.`;
 }
 
-function fetchTextWithHttps(url: string, redirects = 2): Promise<string> {
-  return fetchTextWithHttpsResponse(url, undefined, redirects).then((response) => response.text);
+function fetchTextWithHttps(url: string, redirects = 2, timeoutMs = 12_000): Promise<string> {
+  return fetchTextWithHttpsResponse(url, undefined, redirects, timeoutMs).then((response) => response.text);
 }
 
-function fetchTextWithHttpsResponse(url: string, headers: Record<string, string> = {}, redirects = 2): Promise<TextResponse> {
+function fetchTextWithHttpsResponse(url: string, headers: Record<string, string> = {}, redirects = 2, timeoutMs = 12_000): Promise<TextResponse> {
   return new Promise((resolve, reject) => {
     const request = https.get(
       url,
@@ -723,7 +886,7 @@ function fetchTextWithHttpsResponse(url: string, headers: Record<string, string>
         if (status >= 300 && status < 400 && location && redirects > 0) {
           response.resume();
           const redirected = new URL(location, url).toString();
-          void fetchTextWithHttpsResponse(redirected, headers, redirects - 1).then(resolve, reject);
+          void fetchTextWithHttpsResponse(redirected, headers, redirects - 1, timeoutMs).then(resolve, reject);
           return;
         }
         if (status < 200 || status >= 300) {
@@ -748,7 +911,7 @@ function fetchTextWithHttpsResponse(url: string, headers: Record<string, string>
         });
       }
     );
-    request.setTimeout(12_000, () => {
+    request.setTimeout(timeoutMs, () => {
       request.destroy(new Error("native public page timed out"));
     });
     request.on("error", reject);
@@ -785,16 +948,14 @@ function decodeHttpBody(buffer: Buffer, encoding?: string | string[]): string {
 }
 
 async function getValidAccessToken(settings: AppSettings, collectionType: SpotifyCollectionType = "playlist"): Promise<string> {
-  const clientId = settings.spotifyClientId.trim();
-  if (!clientId) {
-    throw new Error(
-      `Recognized this Spotify ${collectionType} link, but reading its track list requires Spotify API access. Connect Spotify in Settings or enter a Spotify Client ID.`
-    );
-  }
-
   const auth = await readAuth();
   if (auth?.accessToken && auth.expiresAt > Date.now() + 60_000) {
     return auth.accessToken;
+  }
+
+  const clientId = spotifyClientId(settings);
+  if (!clientId) {
+    throw new Error(`读取完整 Spotify ${collectionType} 需要官方授权；当前没有可用的 Spotify API 连接。`);
   }
   if (auth?.refreshToken) {
     const refreshed = await refreshAccessToken(clientId, auth.refreshToken);
@@ -806,7 +967,7 @@ async function getValidAccessToken(settings: AppSettings, collectionType: Spotif
     return getClientCredentialsToken(settings);
   }
 
-  throw new Error(`Please connect Spotify in Settings before importing this ${collectionType}.`);
+  throw new Error(`请先在设置里连接 Spotify API，再导入这个 ${collectionType}。`);
 }
 
 async function waitForCallback(expectedState: string): Promise<string> {
@@ -887,7 +1048,7 @@ async function tokenRequest(body: URLSearchParams): Promise<SpotifyAuthStore> {
 }
 
 async function getClientCredentialsToken(settings: AppSettings): Promise<string> {
-  const credentials = Buffer.from(`${settings.spotifyClientId}:${settings.spotifyClientSecret}`).toString("base64");
+  const credentials = Buffer.from(`${spotifyClientId(settings)}:${settings.spotifyClientSecret}`).toString("base64");
   const response = await fetch("https://accounts.spotify.com/api/token", {
     method: "POST",
     headers: {

@@ -51,6 +51,8 @@ export interface DownloadTask {
 export interface AppSettings {
   spotifyClientId: string;
   spotifyClientSecret: string;
+  membershipKey: string;
+  membershipValidationUrl: string;
   downloadDirectory: string;
   outputFormat: OutputFormat;
   audioQuality: AudioQuality;
@@ -62,27 +64,14 @@ export interface AppSettings {
 export interface ImportPlaylistResult {
   playlistName: string;
   tracks: TrackMetadata[];
+  reportedTotal?: number;
 }
 
-export type SpotifyCollectionType = "playlist" | "album";
+export type SpotifyCollectionType = "playlist" | "album" | "track" | "artist";
 
 export interface LibraryImportResult extends ImportPlaylistResult {
   source: "spotify";
   collectionType: SpotifyCollectionType;
-}
-
-export interface SearchTrackInput {
-  title: string;
-  artist?: string;
-}
-
-export type SearchMode = "fuzzy" | "exact";
-
-export interface KeywordSearchInput {
-  title: string;
-  artist?: string;
-  album?: string;
-  mode: SearchMode;
 }
 
 export interface SpotifyAuthStatus {
@@ -92,24 +81,41 @@ export interface SpotifyAuthStatus {
   expiresAt?: number;
 }
 
+export type MembershipState = "trial" | "active" | "expired" | "invalid";
+
+export interface MembershipStatus {
+  state: MembershipState;
+  checkedAt?: number;
+  planName?: string;
+  expiresAt?: number;
+  memberId?: string;
+  message?: string;
+  validationUrl?: string;
+  keyHash?: string;
+  downloadsSinceLastVerification?: number;
+}
+
 export interface AppApi {
   getSettings(): Promise<AppSettings>;
   saveSettings(settings: AppSettings): Promise<AppSettings>;
   chooseDownloadDirectory(): Promise<string | null>;
   openExternal(url: string): Promise<void>;
+  openPath(path: string): Promise<void>;
+  getMembershipStatus(): Promise<MembershipStatus>;
+  verifyMembership(): Promise<MembershipStatus>;
+  clearMembership(): Promise<MembershipStatus>;
   startSpotifyLogin(): Promise<SpotifyAuthStatus>;
   getSpotifyAuthStatus(): Promise<SpotifyAuthStatus>;
   disconnectSpotify(): Promise<SpotifyAuthStatus>;
   importLibraryLink(link: string): Promise<LibraryImportResult>;
-  searchKeyword(input: KeywordSearchInput): Promise<MatchCandidate[]>;
   importSpotifyPlaylist(playlistUrlOrId: string): Promise<ImportPlaylistResult>;
-  searchCandidates(track: TrackMetadata): Promise<MatchCandidate[]>;
   enqueueDownload(track: TrackMetadata, candidate?: MatchCandidate): Promise<DownloadTask>;
   retryTask(taskId: string): Promise<DownloadTask | null>;
   approveTask(taskId: string): Promise<DownloadTask | null>;
   pauseTask(taskId: string): Promise<DownloadTask | null>;
   resumeTask(taskId: string): Promise<DownloadTask | null>;
   cancelTask(taskId: string): Promise<DownloadTask | null>;
+  removeTask(taskId: string): Promise<boolean>;
   getTasks(): Promise<DownloadTask[]>;
   onTasksChanged(callback: (tasks: DownloadTask[]) => void): () => void;
 }

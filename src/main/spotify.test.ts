@@ -14,6 +14,28 @@ describe("parseSpotifyCollectionLink", () => {
       type: "playlist",
       id: "37i9dQZF1DXcBWIGoYBM5M"
     });
+    expect(parseSpotifyCollectionLink("https://open.spotify.com/user/example/playlist/37i9dQZF1DXcBWIGoYBM5M")).toEqual({
+      type: "playlist",
+      id: "37i9dQZF1DXcBWIGoYBM5M"
+    });
+  });
+
+  it("recognizes Spotify track and artist links", () => {
+    expect(parseSpotifyCollectionLink("https://open.spotify.com/track/17o0DlBVfubE3kKUMjAQiz")).toEqual({
+      type: "track",
+      id: "17o0DlBVfubE3kKUMjAQiz"
+    });
+    expect(parseSpotifyCollectionLink("spotify:artist:06HL4z0CvFAxyc27GXpf02")).toEqual({
+      type: "artist",
+      id: "06HL4z0CvFAxyc27GXpf02"
+    });
+  });
+
+  it("recognizes localized Spotify links", () => {
+    expect(parseSpotifyCollectionLink("https://open.spotify.com/intl-zh/album/2CjB8o7PqZWrCTIODE8j4U")).toEqual({
+      type: "album",
+      id: "2CjB8o7PqZWrCTIODE8j4U"
+    });
   });
 });
 

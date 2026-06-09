@@ -68,4 +68,35 @@ describe("scoreCandidate", () => {
     expect(lyric.riskTags).toContain("歌詞");
     expect(lyric.riskTags).toContain("pinyin");
   });
+
+  it("penalizes numeric-only matches for Chinese numeral titles", () => {
+    const chineseTrack: TrackMetadata = {
+      id: "track-1991",
+      title: "一九九一·冬",
+      artists: ["王齐铭WatchMe"],
+      album: "生活麻辣烫",
+      durationMs: 184000
+    };
+
+    const correct = scoreCandidate(chineseTrack, {
+      id: "candidate-1991-good",
+      title: "王齐铭WatchMe - 一九九一·冬",
+      uploader: "王齐铭WatchMe",
+      durationMs: 184000,
+      url: "https://youtube.com/watch?v=good",
+      isVerified: true
+    });
+    const wrong = scoreCandidate(chineseTrack, {
+      id: "candidate-1991-bad",
+      title: "919",
+      uploader: "Music Channel",
+      durationMs: 184000,
+      url: "https://youtube.com/watch?v=bad"
+    });
+
+    expect(correct.score).toBeGreaterThanOrEqual(85);
+    expect(wrong.score).toBeLessThan(25);
+    expect(wrong.riskTags).toContain("language mismatch");
+    expect(wrong.riskTags).toContain("numeric title mismatch");
+  });
 });

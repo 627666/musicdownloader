@@ -9,6 +9,8 @@ const settingsFile = () => path.join(app.getPath("userData"), "settings.json");
 export const defaultSettings = (): AppSettings => ({
   spotifyClientId: "",
   spotifyClientSecret: "",
+  membershipKey: "",
+  membershipValidationUrl: "",
   downloadDirectory: path.join(app.getPath("downloads"), "MusicDownloader"),
   outputFormat: "mp3",
   audioQuality: "best",
@@ -49,6 +51,8 @@ async function sanitizeSettings(settings: Partial<AppSettings>): Promise<AppSett
     ...defaults,
     ...settings,
     downloadDirectory,
+    membershipKey: settings.membershipKey?.trim() ?? defaults.membershipKey,
+    membershipValidationUrl: settings.membershipValidationUrl?.trim() ?? defaults.membershipValidationUrl,
     outputFormat: settings.outputFormat ?? defaults.outputFormat,
     audioQuality: settings.audioQuality ?? defaults.audioQuality,
     concurrentDownloads: Math.max(1, Math.min(5, Number(settings.concurrentDownloads) || 1)),

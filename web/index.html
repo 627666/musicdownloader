@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Music Downloader - 歌单匹配与音乐下载工具</title>
+    <meta
+      name="description"
+      content="Music Downloader 是一款桌面音乐工具，可导入 Spotify 公开歌单，匹配公开来源结果，并管理本地音乐下载任务。"
+    />
+    <meta name="robots" content="index,follow" />
+    <meta property="og:title" content="Music Downloader" />
+    <meta property="og:description" content="导入歌单、智能匹配、批量管理本地音乐下载。" />
+    <meta property="og:type" content="website" />
+    <link rel="canonical" href="https://example.com/" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Music Downloader",
+        "applicationCategory": "MultimediaApplication",
+        "operatingSystem": "Windows, macOS, Linux",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "CNY"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="Music Downloader 首页">
+        <span class="brand-mark">MD</span>
+        <span>Music Downloader</span>
+      </a>
+      <nav aria-label="主导航">
+        <a href="#download">下载</a>
+        <a href="#membership">会员</a>
+        <a href="#faq">说明</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">桌面歌单匹配工具</p>
+          <h1>Music Downloader</h1>
+          <p class="summary">
+            导入 Spotify 公开歌单，自动匹配公开来源结果，统一管理搜索、确认、下载和失败重试流程。
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#download">下载软件</a>
+            <a class="button secondary" href="#membership">注册会员</a>
+          </div>
+        </div>
+        <div class="product-shot" aria-label="软件功能预览">
+          <div class="window-bar">
+            <span></span><span></span><span></span>
+          </div>
+          <div class="preview-grid">
+            <div>
+              <small>歌单导入</small>
+              <strong>Spotify Playlist</strong>
+            </div>
+            <div>
+              <small>匹配分数</small>
+              <strong>92%</strong>
+            </div>
+            <div>
+              <small>任务状态</small>
+              <strong>Downloading</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="download" class="section">
+        <div class="section-heading">
+          <p class="eyebrow">Download</p>
+          <h2>网页下载入口</h2>
+          <p>把安装包上传到 GitHub Releases、对象存储或软件下载 CDN 后，替换下面按钮对应的地址即可。</p>
+        </div>
+        <div class="download-panel">
+          <div>
+            <h3>Windows 版</h3>
+            <p>适合大多数用户。首次安装后，在软件设置里填写会员密钥和验证地址。</p>
+          </div>
+          <a class="button primary" id="download-windows" href="https://example.com/downloads/musicdownloader-windows.exe">
+            下载 Windows 安装包
+          </a>
+        </div>
+        <p class="fine-print">
+          如果下载速度慢，可将安装包同步到中国大陆访问更稳定的镜像源，并保留官网作为搜索入口。
+        </p>
+      </section>
+
+      <section id="membership" class="section split">
+        <div class="section-heading">
+          <p class="eyebrow">Membership</p>
+          <h2>注册会员</h2>
+          <p>提交后会生成一个会员密钥。用户把密钥填入软件设置页，再点击 Verify 即可解锁下载。</p>
+        </div>
+        <form id="membership-form" class="member-form">
+          <label>
+            邮箱
+            <input name="email" type="email" autocomplete="email" required placeholder="you@example.com" />
+          </label>
+          <label>
+            昵称
+            <input name="name" autocomplete="name" placeholder="可选" />
+          </label>
+          <label>
+            套餐
+            <select name="plan">
+              <option value="monthly">月度会员</option>
+              <option value="yearly">年度会员</option>
+            </select>
+          </label>
+          <button class="button primary" type="submit">生成会员密钥</button>
+          <output id="registration-result" aria-live="polite"></output>
+        </form>
+      </section>
+
+      <section id="faq" class="section faq">
+        <div>
+          <h2>上线前需要确认</h2>
+          <p>官网展示、安装包下载和会员注册只是上线基础，还需要配置域名、备案或合规要求、支付方式、隐私政策和搜索引擎收录。</p>
+        </div>
+        <div>
+          <h3>软件会下载 Spotify 音频吗？</h3>
+          <p>不会。当前软件只把 Spotify 作为公开歌单元数据来源，不绕过 DRM，不直接下载 Spotify 或 Apple Music 音频。</p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>Music Downloader</span>
+      <a href="./sitemap.xml">Sitemap</a>
+    </footer>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

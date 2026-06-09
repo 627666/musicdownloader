@@ -5,6 +5,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import type { AppSettings, DownloadTask, MatchCandidate, TrackMetadata } from "../shared/types.js";
 import { cleanYtdlpError, searchYoutubeCandidates } from "./matcher.js";
+import { recordCompletedDownloadAndMaybeVerify, requireActiveMembership } from "./membership.js";
 import { findProjectTool, toolEnvironment, ytdlpBaseArgs } from "./tools.js";
 
 type SettingsProvider = () => Promise<AppSettings>;
@@ -95,6 +96,14 @@ export class DownloadManager {
     return this.tasks.get(taskId) ?? null;
   }
 
+  async remove(taskId: string): Promise<boolean> {
+    const active = this.active.get(taskId);
+    active?.abort();
+    const deleted = this.tasks.delete(taskId);
+    if (deleted) await this.persistAndEmit();
+    return deleted;
+  }
+
   private async process(): Promise<void> {
     const settings = await this.getSettings();
     const openSlots = Math.max(0, settings.concurrentDownloads - this.active.size);
@@ -116,6 +125,7 @@ export class DownloadManager {
 
     try {
       const settings = await this.getSettings();
+      await requireActiveMembership(settings);
       let candidate = task.candidate;
       let candidatesToTry: MatchCandidate[] = candidate ? [candidate] : [];
 
@@ -157,6 +167,10 @@ export class DownloadManager {
           await this.runDownload(taskId, args, abort.signal);
           if (!abort.signal.aborted) {
             this.patch(taskId, { status: "completed", progress: 100, error: undefined });
+            const membershipStatus = await recordCompletedDownloadAndMaybeVerify(settings);
+            if (membershipStatus.state === "invalid") {
+              this.patch(taskId, { error: membershipStatus.message ?? "Membership verification failed after this download." });
+            }
           }
           return;
         } catch (error) {
