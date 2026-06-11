@@ -6,7 +6,19 @@ This project deliberately does not download audio from Spotify or Apple Music an
 
 ## Quick Start
 
-1. Install Node.js and npm.
+### macOS
+
+The setup script installs project-local Node.js 22, npm, `yt-dlp`, `ffmpeg`, and JavaScript dependencies:
+
+```sh
+./scripts/setup-macos.sh
+./scripts/check-macos.sh
+./scripts/dev-macos.sh
+```
+
+### Other platforms
+
+1. Install Node.js 22 and npm.
 2. Install dependencies:
 
    ```powershell
@@ -16,7 +28,7 @@ This project deliberately does not download audio from Spotify or Apple Music an
 3. Install `yt-dlp` and `ffmpeg`, then make both available on your PATH.
 4. Start the app:
 
-   ```powershell
+   ```sh
    npm run dev
    ```
 
