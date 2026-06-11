@@ -30,7 +30,7 @@ body,
 body {
   margin: 0;
   min-width: 0;
-  min-height: 680px;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -476,24 +476,45 @@ p {
 }
 
 .import-page {
-  display: grid;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
   gap: 14px;
   padding-bottom: 18px;
 }
 
-.import-workbench {
-  display: grid;
-  grid-template-columns: minmax(260px, 340px) minmax(620px, 1fr);
-  gap: 14px;
-  align-items: stretch;
-  min-height: min(760px, calc(100vh - 230px));
+.import-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  padding: 6px;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.025);
 }
 
-.import-side-stack {
-  min-width: 0;
+.import-tabs button {
+  background: transparent;
+  color: #cfd5d9;
+  border: 1px solid transparent;
+}
+
+.import-tabs button.active {
+  color: var(--green);
+  border-color: rgba(0, 216, 80, 0.32);
+  background: var(--green-soft);
+}
+
+.link-import-layout {
   display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.6fr);
   gap: 14px;
-  align-content: start;
+}
+
+.link-import-layout .imported-results {
+  grid-column: 1 / -1;
 }
 
 .link-import-card,
@@ -535,9 +556,23 @@ p {
 }
 
 .browser-stage {
-  min-height: 100%;
+  flex: 1 1 auto;
+  min-height: 480px;
   display: flex;
   flex-direction: column;
+}
+
+.browser-stage-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.browser-stage-head > span {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .input-row,
@@ -554,6 +589,7 @@ p {
 
 .browser-auth-row,
 .browser-import-row {
+  flex: 0 0 auto;
   margin: 10px 0;
   min-height: 42px;
   display: grid;
@@ -582,9 +618,10 @@ p {
 }
 
 .spotify-webview {
+  display: block;
   width: 100%;
   flex: 1 1 auto;
-  min-height: 560px;
+  min-height: 360px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #080d10;
@@ -1047,6 +1084,13 @@ dd {
   font-size: 13px;
 }
 
+.format-hint {
+  margin: 2px 0 8px 196px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 @media (max-width: 1380px) {
   .home-panel,
   .home-panel-large,
@@ -1107,7 +1151,6 @@ dd {
     display: none;
   }
 
-  .import-workbench,
   .download-layout {
     grid-template-columns: 1fr;
   }
@@ -1118,10 +1161,6 @@ dd {
 }
 
 @media (max-width: 980px) {
-  body {
-    min-height: 560px;
-  }
-
   .workspace {
     grid-template-rows: 58px auto minmax(0, 1fr);
   }
@@ -1161,10 +1200,17 @@ dd {
   }
 
   .browser-toolbar,
-  .browser-auth-row,
   .browser-import-row,
   .input-row {
     grid-template-columns: 1fr;
+  }
+
+  .browser-import-row {
+    margin-bottom: 14px;
+  }
+
+  .browser-import-row button {
+    width: 100%;
   }
 
   .browser-toolbar {
@@ -1175,6 +1221,17 @@ dd {
     grid-column: span 2;
   }
 
+  .link-import-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .link-import-layout .imported-results {
+    grid-column: auto;
+  }
+
+  .format-hint {
+    margin-left: 0;
+  }
 }
 
 @media (max-width: 760px) {
@@ -1212,5 +1269,46 @@ dd {
 
   .page-header h2 {
     font-size: 26px;
+  }
+
+  .import-tabs {
+    width: 100%;
+  }
+
+  .import-tabs button {
+    flex: 1 1 0;
+    min-width: 0;
+    white-space: normal;
+  }
+}
+
+@media (max-height: 700px) {
+  .workspace {
+    grid-template-rows: 52px auto minmax(0, 1fr);
+  }
+
+  .topbar {
+    padding: 0 18px;
+  }
+
+  .page-header {
+    padding-top: 12px;
+    padding-bottom: 8px;
+  }
+
+  .page-header h2 {
+    font-size: 25px;
+  }
+
+  .page-header p {
+    display: none;
+  }
+
+  .browser-stage {
+    min-height: 390px;
+  }
+
+  .spotify-webview {
+    min-height: 260px;
   }
 }

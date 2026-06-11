@@ -15,10 +15,10 @@ import {
   RefreshCcw,
   RotateCw,
   Settings,
-  Sparkles,
   Trash2
 } from "lucide-react";
 import type {
+  AppApi,
   AppSettings,
   DownloadTask,
   LibraryImportResult,
@@ -31,6 +31,7 @@ import "./styles.css";
 
 type Page = "home" | "import" | "downloads" | "settings";
 type QueueFilter = "all" | "downloading" | "queued" | "completed" | "failed";
+type ImportMode = "link" | "browser";
 type SpotifyWebviewElement = HTMLWebViewElement & {
   getURL(): string;
   loadURL(url: string): void;
@@ -45,12 +46,62 @@ const spotifyDesktopUserAgent =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 const spotifyBrowserHomeUrl = "https://open.spotify.com/";
 
+installBrowserPreviewApi();
+
 const navItems: Array<{ page: Page; label: string; icon: React.ElementType }> = [
   { page: "home", label: "首页", icon: Home },
   { page: "import", label: "导入音乐", icon: Link },
   { page: "downloads", label: "下载队列", icon: Download },
   { page: "settings", label: "设置", icon: Settings }
 ];
+
+function installBrowserPreviewApi() {
+  if (window.musicDownloader) return;
+
+  const previewSettings: AppSettings = {
+    spotifyClientId: "",
+    spotifyClientSecret: "",
+    membershipKey: "",
+    membershipValidationUrl: "",
+    downloadDirectory: "桌面应用中选择下载目录",
+    outputFormat: "mp3",
+    audioQuality: "best",
+    concurrentDownloads: 2,
+    autoDownloadThreshold: 82,
+    confirmationThreshold: 58
+  };
+  const previewOnly = async (): Promise<never> => {
+    throw new Error("当前是网页预览模式，请打开 TuneKeep 桌面应用使用此功能。");
+  };
+  const api: AppApi = {
+    getSettings: async () => previewSettings,
+    saveSettings: async (settings) => settings,
+    chooseDownloadDirectory: async () => null,
+    openExternal: async (url) => {
+      window.open(url, "_blank", "noopener,noreferrer");
+    },
+    openPath: previewOnly,
+    getMembershipStatus: async () => ({ state: "trial", message: "网页预览模式，下载功能需要 TuneKeep 桌面应用。" }),
+    verifyMembership: previewOnly,
+    clearMembership: async () => ({ state: "trial", message: "网页预览模式。" }),
+    startSpotifyLogin: previewOnly,
+    getSpotifyAuthStatus: async () => ({ connected: false, needsClientId: true }),
+    disconnectSpotify: async () => ({ connected: false, needsClientId: true }),
+    importLibraryLink: previewOnly,
+    importSpotifyPlaylist: previewOnly,
+    enqueueDownload: previewOnly,
+    retryTask: async () => null,
+    approveTask: async () => null,
+    pauseTask: async () => null,
+    resumeTask: async () => null,
+    cancelTask: async () => null,
+    removeTask: async () => false,
+    getTasks: async () => [],
+    onTasksChanged: () => () => undefined
+  };
+
+  window.musicDownloader = api;
+}
 
 function App() {
   const [page, setPage] = useState<Page>("home");
@@ -220,7 +271,7 @@ function TopBar({
       <div className="top-metrics">
         <span>
           <Gauge size={15} />
-          Active Tasks: {summary.active}
+          活跃任务：{summary.active}
         </span>
       </div>
       <div className="top-notice">{notice}</div>
@@ -238,7 +289,7 @@ function PlanCard({ status }: { status: MembershipStatus | null }) {
     <section className="plan-card" data-state={state}>
       <div>
         <strong>{membershipStateText(state)}</strong>
-        <span>{state === "active" ? "VIP" : "Free"}</span>
+        <span>{state === "active" ? "VIP" : "免费版"}</span>
       </div>
       <p>{status?.message ?? "当前为试用模式，可正常体验下载。"}</p>
       <div className="plan-meter">
@@ -246,7 +297,7 @@ function PlanCard({ status }: { status: MembershipStatus | null }) {
       </div>
       <button>
         <Crown size={16} />
-        Upgrade to Pro
+        升级为专业版
       </button>
     </section>
   );
@@ -270,7 +321,7 @@ function HomePage({
   return (
     <div className="home-grid">
       <section className="surface home-panel home-panel-large">
-        <PanelTitle title="Current Downloads" action="View All" onAction={() => setPage("downloads")} />
+        <PanelTitle title="当前下载" action="查看全部" onAction={() => setPage("downloads")} />
         <div className="stack-list">
           {current.map((task) => (
             <CompactTask key={task.id} task={task} />
@@ -280,17 +331,17 @@ function HomePage({
       </section>
 
       <section className="surface home-panel home-panel-large">
-        <PanelTitle title="Recent Imports" action="View All" onAction={() => setPage("import")} />
+        <PanelTitle title="最近导入" action="查看全部" onAction={() => setPage("import")} />
         <div className="stack-list">
           {recent.map((track) => (
             <div className="mini-row" key={track.id}>
               {track.artworkUrl ? <img src={track.artworkUrl} alt="" /> : <span className="art-fallback" />}
               <div>
                 <strong>{track.title}</strong>
-                <span>{track.artists.join(", ") || "Unknown artist"}</span>
+                <span>{track.artists.join(", ") || "未知艺人"}</span>
               </div>
               <button className="outline" onClick={() => window.musicDownloader.enqueueDownload(track)}>
-                Add
+                添加
               </button>
             </div>
           ))}
@@ -299,7 +350,7 @@ function HomePage({
       </section>
 
       <section className="surface home-panel home-panel-large">
-        <PanelTitle title="Failed Tasks" action="View All" onAction={() => setPage("downloads")} />
+        <PanelTitle title="异常任务" action="查看全部" onAction={() => setPage("downloads")} />
         <div className="stack-list">
           {failed.map((task) => (
             <div className="mini-row danger" key={task.id}>
@@ -309,7 +360,7 @@ function HomePage({
                 <span>{task.error ?? statusText(task.status)}</span>
               </div>
               <button className="outline" onClick={() => window.musicDownloader.retryTask(task.id)}>
-                Retry
+                重试
               </button>
             </div>
           ))}
@@ -318,19 +369,19 @@ function HomePage({
       </section>
 
       <section className="surface quick-actions home-panel-large">
-        <PanelTitle title="Quick Actions" />
+        <PanelTitle title="快捷操作" />
         <div className="quick-grid">
           <button onClick={() => setPage("import")}>
             <Link size={28} />
-            Import Link
+            导入链接
           </button>
           <button onClick={() => settings?.downloadDirectory && window.musicDownloader.openExternal(localFileUrl(settings.downloadDirectory))}>
             <FolderOpen size={28} />
-            Open Folder
+            打开下载文件夹
           </button>
           <button onClick={() => setPage("settings")}>
             <Crown size={28} />
-            Membership Settings
+            会员设置
           </button>
         </div>
       </section>
@@ -350,22 +401,35 @@ function ImportPage(props: {
   authStatus: SpotifyAuthStatus | null;
   onConnectSpotify: () => void;
 }) {
+  const [mode, setMode] = useState<ImportMode>("link");
+
   return (
     <div className="import-page">
-      <div className="import-workbench">
-        <div className="import-side-stack">
-          <LibraryImportPanel {...props} />
-          <SpotifyAccessPanel authStatus={props.authStatus} busy={props.busy} onConnectSpotify={props.onConnectSpotify} />
-        </div>
-        <SpotifyBrowserImportPanel {...props} />
+      <div className="import-tabs" role="tablist" aria-label="导入方式">
+        <button className={mode === "link" ? "active" : ""} onClick={() => setMode("link")}>
+          <Link size={17} />
+          复制链接
+        </button>
+        <button className={mode === "browser" ? "active" : ""} onClick={() => setMode("browser")}>
+          <Globe2 size={17} />
+          在 Spotify 页面打开
+        </button>
       </div>
 
-      <ImportedLibraryTracks
-        library={props.library}
-        busy={props.busy}
-        canDownload={canUseDownloads(props.membershipStatus)}
-        onQueueImported={props.onQueueImported}
-      />
+      {mode === "link" ? (
+        <div className="link-import-layout">
+          <LibraryImportPanel {...props} />
+          <SpotifyAccessPanel authStatus={props.authStatus} busy={props.busy} onConnectSpotify={props.onConnectSpotify} />
+          <ImportedLibraryTracks
+            library={props.library}
+            busy={props.busy}
+            canDownload={canUseDownloads(props.membershipStatus)}
+            onQueueImported={props.onQueueImported}
+          />
+        </div>
+      ) : (
+        <SpotifyBrowserImportPanel {...props} />
+      )}
     </div>
   );
 }
@@ -386,7 +450,7 @@ function LibraryImportPanel({
 }) {
   return (
     <section className="surface link-import-card">
-      <h3>Paste Spotify Link</h3>
+      <h3>粘贴 Spotify 链接</h3>
       <p>支持 Spotify 专辑、播放列表、单曲和艺人链接。公开链接可直接导入；超长歌单需要完成 Spotify 授权后才能完整读取。</p>
       <div className="input-row">
         <input placeholder="https://open.spotify.com/playlist/..." value={libraryLink} onChange={(event) => setLibraryLink(event.target.value)} />
@@ -410,16 +474,16 @@ function SpotifyAccessPanel({
 }) {
   return (
     <section className="surface spotify-access-card">
-      <PanelTitle title="Spotify Web Login" icon={Globe2} />
-      <p>{authStatus?.connected ? "Spotify 已连接，可以导入账号有权限访问的内容。" : "如需登录 Spotify 或使用 Google 登录，请用系统浏览器打开。右侧网页只用于浏览和识别链接。"}</p>
+      <PanelTitle title="Spotify 登录状态" icon={Globe2} />
+      <p>{authStatus?.connected ? "Spotify 已连接，可以完整导入账号有权限访问的内容。" : "可以直接使用内置 Spotify 网页浏览内容；如授权登录遇到限制，也可以使用系统浏览器连接。"}</p>
       <div className="access-actions">
         <button className="secondary" onClick={onConnectSpotify} disabled={Boolean(busy)}>
           <ExternalLink size={16} />
-          授权连接
+          连接 Spotify 账号
         </button>
         <button className="secondary" onClick={() => window.musicDownloader.openExternal(spotifyBrowserHomeUrl)}>
           <Globe2 size={16} />
-          系统浏览器打开
+          在系统浏览器打开
         </button>
       </div>
     </section>
@@ -499,7 +563,10 @@ function SpotifyBrowserImportPanel({
 
   return (
     <section className="surface browser-stage">
-      <PanelTitle title="Spotify Browser Preview" icon={Globe2} />
+      <div className="browser-stage-head">
+        <PanelTitle title="Spotify 网页" icon={Globe2} />
+        <span>{authStatus?.connected ? "账号已连接" : "可在下方网页登录和浏览"}</span>
+      </div>
       <div className="browser-toolbar">
         <button className="icon-button" onClick={openHome} title="打开 Spotify 曲库">
           <Home size={16} />
@@ -525,11 +592,8 @@ function SpotifyBrowserImportPanel({
         </button>
         <button className="secondary" onClick={() => window.musicDownloader.openExternal(address || spotifyBrowserHomeUrl)}>
           <ExternalLink size={16} />
-          系统浏览器打开
+          系统浏览器
         </button>
-      </div>
-      <div className="browser-auth-row">
-        <span>{authStatus?.connected ? "Spotify 已连接，可导入账号有权限访问的内容。" : "右侧页面用于浏览和识别当前 Spotify 链接；登录请使用左侧入口。"}</span>
       </div>
       <div className="browser-import-row">
         <span>
@@ -566,7 +630,7 @@ function ImportedLibraryTracks({
   if (!library) {
     return (
       <section className="surface imported-results empty-results">
-        <PanelTitle title="Imported Results" />
+        <PanelTitle title="导入结果" />
         <EmptyState text="导入后，这里会显示曲目列表和下载准备状态。" />
       </section>
     );
@@ -575,20 +639,20 @@ function ImportedLibraryTracks({
   return (
     <section className="surface imported-results">
       <div className="result-head">
-        <PanelTitle title="Imported Results" />
+        <PanelTitle title="导入结果" />
         <div className="result-filters">
-          <span className="active">All {library.tracks.length}</span>
-          <span>Matched {library.tracks.length}</span>
-          <span>Possible mismatch 0</span>
+          <span className="active">全部 {library.tracks.length}</span>
+          <span>已识别 {library.tracks.length}</span>
+          <span>可能不匹配 0</span>
         </div>
       </div>
       <div className="music-table import-table">
         <div className="table-head">
-          <span>Track</span>
-          <span>Artist</span>
-          <span>Album</span>
-          <span>Duration</span>
-          <span>Match Status</span>
+          <span>曲目</span>
+          <span>艺人</span>
+          <span>专辑</span>
+          <span>时长</span>
+          <span>识别状态</span>
         </div>
         <div className="table-body">
           {library.tracks.map((track) => (
@@ -597,19 +661,19 @@ function ImportedLibraryTracks({
                 {track.artworkUrl ? <img src={track.artworkUrl} alt="" /> : <i className="art-fallback" />}
                 <strong>{track.title}</strong>
               </span>
-              <span>{track.artists.join(", ") || "Unknown artist"}</span>
+              <span>{track.artists.join(", ") || "未知艺人"}</span>
               <span>{track.album ?? library.playlistName}</span>
               <span>{formatDuration(track.durationMs)}</span>
-              <span className="badge ok">Ready</span>
+              <span className="badge ok">已就绪</span>
             </div>
           ))}
         </div>
       </div>
       <div className="result-footer">
-        <strong>Selected {library.tracks.length} of {library.tracks.length} tracks</strong>
+        <strong>已选择 {library.tracks.length} / {library.tracks.length} 首曲目</strong>
         <button onClick={onQueueImported} disabled={Boolean(busy) || !canDownload}>
           <Download size={16} />
-          Add to Download Queue
+          加入下载队列
         </button>
       </div>
     </section>
@@ -653,11 +717,11 @@ function DownloadPage({
   const filteredTasks = useMemo(() => tasks.filter((task) => taskMatchesQueueFilter(task, filter)), [filter, tasks]);
   const selected = useMemo(() => filteredTasks.find((task) => task.id === selectedId) ?? filteredTasks[0] ?? null, [filteredTasks, selectedId]);
   const filters: Array<{ value: QueueFilter; label: string; count: number }> = [
-    { value: "all", label: "All", count: tasks.length },
-    { value: "downloading", label: "Downloading", count: summary.downloading },
-    { value: "queued", label: "Queued", count: summary.queued },
-    { value: "completed", label: "Completed", count: summary.completed },
-    { value: "failed", label: "Failed", count: summary.failed }
+    { value: "all", label: "全部", count: tasks.length },
+    { value: "downloading", label: "下载中", count: summary.downloading },
+    { value: "queued", label: "排队中", count: summary.queued },
+    { value: "completed", label: "已完成", count: summary.completed },
+    { value: "failed", label: "失败", count: summary.failed }
   ];
 
   return (
@@ -673,18 +737,18 @@ function DownloadPage({
         <div className="queue-actions">
           <button onClick={() => tasks.filter((task) => ["failed", "cancelled"].includes(task.status)).forEach((task) => window.musicDownloader.retryTask(task.id))}>
             <RefreshCcw size={16} />
-            Retry Failed
+            重试失败任务
           </button>
           <span>{settings?.downloadDirectory}</span>
         </div>
         <div className="music-table queue-table">
           <div className="table-head">
-            <span>Track</span>
-            <span>Artist</span>
-            <span>Status</span>
-            <span>Progress</span>
-            <span>Source Match</span>
-            <span>Actions</span>
+            <span>曲目</span>
+            <span>艺人</span>
+            <span>状态</span>
+            <span>进度</span>
+            <span>音源匹配</span>
+            <span>操作</span>
           </div>
           <div className="table-body">
             {filteredTasks.map((task) => (
@@ -700,7 +764,7 @@ function DownloadPage({
           </div>
         </div>
       </section>
-      <TaskDetails task={selected} settings={settings} setNotice={setNotice} />
+      <TaskDetails task={selected} setNotice={setNotice} />
     </div>
   );
 }
@@ -722,13 +786,13 @@ function DownloadRow({
         {task.track.artworkUrl ? <img src={task.track.artworkUrl} alt="" /> : <i className="art-fallback" />}
         <strong>{task.track.title}</strong>
       </span>
-      <span>{task.track.artists.join(", ") || "Unknown artist"}</span>
+      <span>{task.track.artists.join(", ") || "未知艺人"}</span>
       <span className={`status-pill ${task.status}`}>{statusText(task.status)}</span>
       <span className="progress-cell">
         <b>{Math.round(task.progress)}%</b>
         <i><em style={{ width: `${task.progress}%` }} /></i>
       </span>
-      <span className={task.candidate ? "match-ok" : "match-wait"}>{task.candidate ? `Matched ${task.candidate.score}%` : "Pending"}</span>
+      <span className={task.candidate ? "match-ok" : "match-wait"}>{task.candidate ? `匹配度 ${task.candidate.score}%` : "等待匹配"}</span>
       <span className="row-actions">
         {task.status === "completed" && (
           <button
@@ -775,37 +839,35 @@ function DownloadRow({
 
 function TaskDetails({
   task,
-  settings,
   setNotice
 }: {
   task: DownloadTask | null;
-  settings: AppSettings | null;
   setNotice: (notice: string) => void;
 }) {
   return (
     <aside className="details-rail">
       <section className="surface details-card">
-        <PanelTitle title="Track Details" />
+        <PanelTitle title="曲目详情" />
         {task ? (
           <>
             <div className="detail-hero">
               {task.track.artworkUrl ? <img src={task.track.artworkUrl} alt="" /> : <span className="art-fallback" />}
               <div>
                 <strong>{task.track.title}</strong>
-                <span>{task.track.artists.join(", ") || "Unknown artist"}</span>
+                <span>{task.track.artists.join(", ") || "未知艺人"}</span>
               </div>
             </div>
             <dl>
-              <dt>Album</dt>
-              <dd>{task.track.album ?? "Unknown"}</dd>
-              <dt>Status</dt>
+              <dt>专辑</dt>
+              <dd>{task.track.album ?? "未知专辑"}</dd>
+              <dt>状态</dt>
               <dd>{statusText(task.status)}</dd>
-              <dt>Format</dt>
-              <dd>MP3</dd>
-              <dt>Progress</dt>
+              <dt>格式</dt>
+              <dd>按下载设置</dd>
+              <dt>进度</dt>
               <dd>{Math.round(task.progress)}%</dd>
-              <dt>Location</dt>
-              <dd>{taskLocationText(task, settings)}</dd>
+              <dt>文件位置</dt>
+              <dd>{taskLocationText(task)}</dd>
             </dl>
             <div className="detail-actions">
               <button
@@ -824,12 +886,12 @@ function TaskDetails({
         )}
       </section>
       <section className="surface details-card">
-        <PanelTitle title="Activity Log" />
+        <PanelTitle title="任务进度" />
         <ol className="activity-log">
-          <li className="done">Task added to queue</li>
-          <li className={task?.candidate ? "done" : ""}>Matching public source</li>
-          <li className={task?.status === "downloading" || task?.status === "completed" ? "done" : ""}>Started downloading</li>
-          <li className={task?.status === "completed" ? "done" : ""}>Completed</li>
+          <li className="done">已加入下载队列</li>
+          <li className={task?.candidate ? "done" : ""}>正在匹配公开音源</li>
+          <li className={task?.status === "downloading" || task?.status === "completed" ? "done" : ""}>已开始下载</li>
+          <li className={task?.status === "completed" ? "done" : ""}>下载完成</li>
         </ol>
       </section>
     </aside>
@@ -917,28 +979,29 @@ function SettingsPanel({
   return (
     <div className="settings-layout">
         <section className="surface settings-card download-settings">
-          <PanelTitle title="Download Settings" icon={Download} />
-          <SettingRow label="Download Directory">
+          <PanelTitle title="下载设置" icon={Download} />
+          <SettingRow label="下载目录">
             <input readOnly value={draft.downloadDirectory} />
-            <button className="secondary" onClick={chooseDirectory}>Change</button>
+            <button className="secondary" onClick={chooseDirectory}>更改</button>
           </SettingRow>
-          <SettingRow label="Output Format">
+          <SettingRow label="导出格式">
             <div className="segmented">
               {(["mp3", "flac", "m4a", "opus", "best"] as AppSettings["outputFormat"][]).map((format) => (
                 <button key={format} className={draft.outputFormat === format ? "active" : ""} onClick={() => setDraft({ ...draft, outputFormat: format })}>
-                  {format.toUpperCase()}
+                  {outputFormatLabel(format)}
                 </button>
               ))}
             </div>
           </SettingRow>
-          <SettingRow label="Audio Quality">
+          <p className="format-hint">MP3、FLAC、M4A、OPUS 会转码为对应格式；“最佳格式”会保留来源的最佳音频容器，扩展名可能是 M4A、WEBM 或 OPUS。</p>
+          <SettingRow label="音频质量">
             <select value={draft.audioQuality} onChange={(event) => setDraft({ ...draft, audioQuality: event.target.value as AppSettings["audioQuality"] })}>
               <option value="best">最佳可用音源</option>
               <option value="balanced">均衡音质</option>
               <option value="small">小文件</option>
             </select>
           </SettingRow>
-          <SettingRow label="Concurrent Downloads">
+          <SettingRow label="同时下载数量">
             <input
               type="number"
               min={1}
@@ -956,14 +1019,14 @@ function SettingsPanel({
         </section>
 
         <section className="surface settings-card">
-          <PanelTitle title="Spotify Settings" icon={Globe2} />
+          <PanelTitle title="Spotify 设置" icon={Globe2} />
           <div className="account-status">
-            <span>Spotify Status</span>
-            <strong>{authStatus?.connected ? "Logged in" : "Browser login available"}</strong>
+            <span>Spotify 状态</span>
+            <strong>{authStatus?.connected ? "已连接" : "可使用网页登录"}</strong>
           </div>
-          <p className="muted">普通用户请使用系统浏览器连接 Spotify，内置页面只用于辅助浏览和复制链接。</p>
+          <p className="muted">内置 Spotify 网页可用于登录、浏览和识别链接；如授权登录遇到限制，也可以使用系统浏览器连接。</p>
           <details className="advanced-settings">
-            <summary>Advanced API Configuration</summary>
+            <summary>高级 API 配置</summary>
             <label>
               Spotify Client ID
               <input value={draft.spotifyClientId} onChange={(event) => setDraft({ ...draft, spotifyClientId: event.target.value })} />
@@ -983,26 +1046,26 @@ function SettingsPanel({
         </section>
 
         <section className="surface settings-card membership-card" data-state={membershipStatus?.state ?? "trial"}>
-          <PanelTitle title="Membership" icon={Crown} />
+          <PanelTitle title="会员设置" icon={Crown} />
           <div className="member-grid">
             <div>
-              <span>Plan Status</span>
+              <span>会员状态</span>
               <strong>{membershipStateText(membershipStatus?.state ?? "trial")}</strong>
             </div>
             <div>
-              <span>Trial Downloads</span>
+              <span>试用下载次数</span>
               <strong>500</strong>
             </div>
           </div>
-          <SettingRow label="Activation Code">
+          <SettingRow label="激活码">
             <input
               type="password"
               value={draft.membershipKey}
               onChange={(event) => setDraft({ ...draft, membershipKey: event.target.value })}
               placeholder="普通用户无需填写"
             />
-            <button onClick={verifyMembership}>Activate</button>
-            <button className="secondary" onClick={clearMembership}>Clear</button>
+            <button onClick={verifyMembership}>激活</button>
+            <button className="secondary" onClick={clearMembership}>清除</button>
           </SettingRow>
         </section>
     </div>
@@ -1070,20 +1133,20 @@ function useTaskSummary(tasks: DownloadTask[]): TaskSummary {
 
 function pageTitle(page: Page): string {
   const map: Record<Page, string> = {
-    home: "Task Center",
-    import: "Import Music",
-    downloads: "Download Queue",
-    settings: "Settings & Account"
+    home: "任务中心",
+    import: "导入音乐",
+    downloads: "下载队列",
+    settings: "设置与账号"
   };
   return map[page];
 }
 
 function pageSubtitle(page: Page): string {
   const map: Record<Page, string> = {
-    home: "Monitor downloads, manage imports, and keep your library safe.",
-    import: "Import music from Spotify to add to your library and download.",
-    downloads: "Manage and monitor all download tasks in one place.",
-    settings: "Customize your experience and manage your account preferences."
+    home: "查看下载进度、最近导入和异常任务。",
+    import: "通过 Spotify 链接或内置网页导入音乐。",
+    downloads: "统一管理和查看全部下载任务。",
+    settings: "调整下载选项并管理账号信息。"
   };
   return map[page];
 }
@@ -1096,24 +1159,24 @@ function taskMatchesQueueFilter(task: DownloadTask, filter: QueueFilter): boolea
   return ["failed", "cancelled"].includes(task.status);
 }
 
-function taskLocationText(task: DownloadTask, settings: AppSettings | null): string {
+function taskLocationText(task: DownloadTask): string {
   if (task.outputPath) return task.outputPath;
   if (task.status === "completed") return "文件路径未记录";
-  if (["queued", "searching", "confirming"].includes(task.status)) return "Path will be created after matching";
-  if (["downloading", "paused"].includes(task.status)) return "File path will be finalized after download";
-  return "No output file was created";
+  if (["queued", "searching", "confirming"].includes(task.status)) return "匹配完成后创建文件";
+  if (["downloading", "paused"].includes(task.status)) return "下载完成后生成文件路径";
+  return "未创建输出文件";
 }
 
 function statusText(status: DownloadTask["status"]): string {
   const map: Record<DownloadTask["status"], string> = {
-    queued: "Queued",
-    searching: "Matching",
-    confirming: "Queued",
-    downloading: "Downloading",
-    paused: "Paused",
-    completed: "Completed",
-    failed: "Failed",
-    cancelled: "Cancelled"
+    queued: "排队中",
+    searching: "匹配中",
+    confirming: "等待确认",
+    downloading: "下载中",
+    paused: "已暂停",
+    completed: "已完成",
+    failed: "失败",
+    cancelled: "已取消"
   };
   return map[status];
 }
@@ -1140,6 +1203,10 @@ function collectionTypeLabel(type: SpotifyCollectionType): string {
     artist: "艺人热门歌曲"
   };
   return map[type];
+}
+
+function outputFormatLabel(format: AppSettings["outputFormat"]): string {
+  return format === "best" ? "最佳格式" : format.toUpperCase();
 }
 
 function detectSpotifyLibraryUrl(value: string): { type: SpotifyCollectionType; id: string; url: string } | null {
