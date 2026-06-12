@@ -1,4 +1,20 @@
 #!/bin/sh
+
+finish() {
+  status=$?
+  echo
+  if [ "$status" -eq 0 ]; then
+    echo "Sync completed."
+  else
+    echo "Sync stopped before completion."
+    echo "If GitHub rejected your password, install GitHub CLI and run: gh auth login"
+  fi
+  printf "Press Enter to close..."
+  read -r answer
+  exit "$status"
+}
+
+trap finish EXIT
 set -e
 
 cd "$(dirname -- "$0")"
@@ -32,8 +48,4 @@ git pull --rebase origin main
 echo "Pushing to GitHub..."
 git push origin main
 
-echo
-echo "Sync completed."
 echo "Backup branch: $backup_branch"
-printf "Press Enter to close..."
-read -r answer

@@ -29,9 +29,8 @@ import type {
 import tuneKeepWordmark from "./assets/tunekeep-wordmark-dark.png";
 import "./styles.css";
 
-type Page = "home" | "import" | "downloads" | "settings";
+type Page = "home" | "linkImport" | "spotify" | "downloads" | "settings";
 type QueueFilter = "all" | "downloading" | "queued" | "completed" | "failed";
-type ImportMode = "link" | "browser";
 type SpotifyWebviewElement = HTMLWebViewElement & {
   getURL(): string;
   loadURL(url: string): void;
@@ -50,7 +49,8 @@ installBrowserPreviewApi();
 
 const navItems: Array<{ page: Page; label: string; icon: React.ElementType }> = [
   { page: "home", label: "首页", icon: Home },
-  { page: "import", label: "导入音乐", icon: Link },
+  { page: "linkImport", label: "链接导入", icon: Link },
+  { page: "spotify", label: "Spotify 网页", icon: Globe2 },
   { page: "downloads", label: "下载队列", icon: Download },
   { page: "settings", label: "设置", icon: Settings }
 ];
@@ -128,7 +128,7 @@ function App() {
     setMembershipStatus(await window.musicDownloader.getMembershipStatus());
   }
 
-  async function importLibrary(linkOverride?: string) {
+  async function importLibrary(linkOverride?: string, destination: Page = "linkImport") {
     const link = (linkOverride ?? libraryLink).trim();
     if (!link) return;
     setBusy("正在导入曲库");
@@ -138,7 +138,7 @@ function App() {
       const imported = await window.musicDownloader.importLibraryLink(link);
       setLibrary(imported);
       setNotice(`已导入 ${collectionTypeLabel(imported.collectionType)}：${imported.tracks.length} 首曲目`);
-      setPage("import");
+      setPage(destination);
     } catch (error) {
       setNotice(cleanError(error));
     } finally {
@@ -201,7 +201,12 @@ function App() {
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
-              <button key={item.page} className={page === item.page ? "active" : ""} onClick={() => setPage(item.page)}>
+              <button
+                key={item.page}
+                className={page === item.page ? "active" : ""}
+                onClick={() => setPage(item.page)}
+                title={item.label}
+              >
                 <Icon size={18} />
                 {item.label}
               </button>
@@ -212,20 +217,22 @@ function App() {
         <PlanCard status={membershipStatus} />
       </aside>
 
-      <section className="workspace">
+      <section className={`workspace ${page === "spotify" ? "spotify-workspace" : ""}`}>
         <TopBar summary={summary} notice={activityText} membershipStatus={membershipStatus} />
 
-        <header className="page-header">
-          <div>
-            <h2>{pageTitle(page)}</h2>
-            <p>{pageSubtitle(page)}</p>
-          </div>
-        </header>
+        {page !== "spotify" && (
+          <header className="page-header">
+            <div>
+              <h2>{pageTitle(page)}</h2>
+              <p>{pageSubtitle(page)}</p>
+            </div>
+          </header>
+        )}
 
-        <section className="page-body">
+        <section className={`page-body ${page === "spotify" ? "spotify-page-body" : ""}`}>
           {page === "home" && <HomePage tasks={tasks} library={library} setPage={setPage} settings={settings} />}
-          {page === "import" && (
-            <ImportPage
+          {page === "linkImport" && (
+            <LinkImportPage
               libraryLink={libraryLink}
               setLibraryLink={setLibraryLink}
               library={library}
@@ -237,6 +244,17 @@ function App() {
               authStatus={authStatus}
               onConnectSpotify={connectSpotify}
             />
+          )}
+          {page === "spotify" && (
+            <div className="spotify-page-layout">
+              <SpotifyBrowserImportPanel busy={busy} onImportLink={(link) => importLibrary(link, "spotify")} />
+              <ImportedLibraryTracks
+                library={library}
+                busy={busy}
+                canDownload={canUseDownloads(membershipStatus)}
+                onQueueImported={queueImportedTracks}
+              />
+            </div>
           )}
           {page === "downloads" && <DownloadPage tasks={tasks} settings={settings} setNotice={setNotice} />}
           {page === "settings" && (
@@ -331,7 +349,7 @@ function HomePage({
       </section>
 
       <section className="surface home-panel home-panel-large">
-        <PanelTitle title="最近导入" action="查看全部" onAction={() => setPage("import")} />
+        <PanelTitle title="最近导入" action="查看全部" onAction={() => setPage("linkImport")} />
         <div className="stack-list">
           {recent.map((track) => (
             <div className="mini-row" key={track.id}>
@@ -371,7 +389,7 @@ function HomePage({
       <section className="surface quick-actions home-panel-large">
         <PanelTitle title="快捷操作" />
         <div className="quick-grid">
-          <button onClick={() => setPage("import")}>
+          <button onClick={() => setPage("linkImport")}>
             <Link size={28} />
             导入链接
           </button>
@@ -389,7 +407,7 @@ function HomePage({
   );
 }
 
-function ImportPage(props: {
+function LinkImportPage(props: {
   libraryLink: string;
   setLibraryLink: (value: string) => void;
   library: LibraryImportResult | null;
@@ -401,35 +419,18 @@ function ImportPage(props: {
   authStatus: SpotifyAuthStatus | null;
   onConnectSpotify: () => void;
 }) {
-  const [mode, setMode] = useState<ImportMode>("link");
-
   return (
     <div className="import-page">
-      <div className="import-tabs" role="tablist" aria-label="导入方式">
-        <button className={mode === "link" ? "active" : ""} onClick={() => setMode("link")}>
-          <Link size={17} />
-          复制链接
-        </button>
-        <button className={mode === "browser" ? "active" : ""} onClick={() => setMode("browser")}>
-          <Globe2 size={17} />
-          在 Spotify 页面打开
-        </button>
+      <div className="link-import-layout">
+        <LibraryImportPanel {...props} />
+        <SpotifyAccessPanel authStatus={props.authStatus} busy={props.busy} onConnectSpotify={props.onConnectSpotify} />
+        <ImportedLibraryTracks
+          library={props.library}
+          busy={props.busy}
+          canDownload={canUseDownloads(props.membershipStatus)}
+          onQueueImported={props.onQueueImported}
+        />
       </div>
-
-      {mode === "link" ? (
-        <div className="link-import-layout">
-          <LibraryImportPanel {...props} />
-          <SpotifyAccessPanel authStatus={props.authStatus} busy={props.busy} onConnectSpotify={props.onConnectSpotify} />
-          <ImportedLibraryTracks
-            library={props.library}
-            busy={props.busy}
-            canDownload={canUseDownloads(props.membershipStatus)}
-            onQueueImported={props.onQueueImported}
-          />
-        </div>
-      ) : (
-        <SpotifyBrowserImportPanel {...props} />
-      )}
     </div>
   );
 }
@@ -491,17 +492,11 @@ function SpotifyAccessPanel({
 }
 
 function SpotifyBrowserImportPanel({
-  library,
   busy,
-  onImportLink,
-  authStatus
+  onImportLink
 }: {
-  library: LibraryImportResult | null;
   busy: string;
   onImportLink: (link: string) => void;
-  onQueueImported: () => void;
-  membershipStatus: MembershipStatus | null;
-  authStatus: SpotifyAuthStatus | null;
 }) {
   const [webview, setWebview] = useState<SpotifyWebviewElement | null>(null);
   const [address, setAddress] = useState(spotifyBrowserHomeUrl);
@@ -563,10 +558,6 @@ function SpotifyBrowserImportPanel({
 
   return (
     <section className="surface browser-stage">
-      <div className="browser-stage-head">
-        <PanelTitle title="Spotify 网页" icon={Globe2} />
-        <span>{authStatus?.connected ? "账号已连接" : "可在下方网页登录和浏览"}</span>
-      </div>
       <div className="browser-toolbar">
         <button className="icon-button" onClick={openHome} title="打开 Spotify 曲库">
           <Home size={16} />
@@ -590,16 +581,19 @@ function SpotifyBrowserImportPanel({
         <button className="secondary" onClick={loadAddress}>
           打开
         </button>
-        <button className="secondary" onClick={() => window.musicDownloader.openExternal(address || spotifyBrowserHomeUrl)}>
+        <button
+          className="secondary browser-external-button"
+          onClick={() => window.musicDownloader.openExternal(address || spotifyBrowserHomeUrl)}
+          title="在系统浏览器打开"
+        >
           <ExternalLink size={16} />
-          系统浏览器
         </button>
-      </div>
-      <div className="browser-import-row">
-        <span>
-          {detected ? `已识别 ${collectionTypeLabel(detected.type)}：${detected.id}` : library ? `${library.playlistName} · ${library.tracks.length} 首` : "打开 Spotify 页面后即可导入"}
-        </span>
-        <button onClick={() => detected && onImportLink(detected.url)} disabled={!detected || Boolean(busy)}>
+        <button
+          className="browser-import-button"
+          onClick={() => detected && onImportLink(detected.url)}
+          disabled={!detected || Boolean(busy)}
+          title={detected ? `导入${collectionTypeLabel(detected.type)}` : "打开 Spotify 歌单、专辑或艺人页面后即可导入"}
+        >
           导入当前页面
         </button>
       </div>
@@ -1134,7 +1128,8 @@ function useTaskSummary(tasks: DownloadTask[]): TaskSummary {
 function pageTitle(page: Page): string {
   const map: Record<Page, string> = {
     home: "任务中心",
-    import: "导入音乐",
+    linkImport: "链接导入",
+    spotify: "Spotify 网页",
     downloads: "下载队列",
     settings: "设置与账号"
   };
@@ -1144,7 +1139,8 @@ function pageTitle(page: Page): string {
 function pageSubtitle(page: Page): string {
   const map: Record<Page, string> = {
     home: "查看下载进度、最近导入和异常任务。",
-    import: "通过 Spotify 链接或内置网页导入音乐。",
+    linkImport: "粘贴 Spotify 链接，识别并导入音乐。",
+    spotify: "登录和浏览 Spotify 网页。",
     downloads: "统一管理和查看全部下载任务。",
     settings: "调整下载选项并管理账号信息。"
   };

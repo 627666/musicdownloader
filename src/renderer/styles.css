@@ -237,6 +237,10 @@ p {
   grid-template-rows: 68px auto minmax(0, 1fr);
 }
 
+.spotify-workspace {
+  grid-template-rows: 68px minmax(0, 1fr);
+}
+
 .topbar {
   border-bottom: 1px solid var(--line);
   display: grid;
@@ -316,6 +320,18 @@ p {
 
 .page-body > * {
   flex: 1 1 auto;
+  min-height: 0;
+}
+
+.spotify-page-body {
+  padding: 12px 16px 16px;
+  overflow: auto;
+}
+
+.spotify-page-layout {
+  display: grid;
+  grid-template-rows: minmax(480px, calc(100vh - 96px)) auto;
+  gap: 14px;
   min-height: 0;
 }
 
@@ -556,10 +572,13 @@ p {
 }
 
 .browser-stage {
-  flex: 1 1 auto;
-  min-height: 480px;
-  display: flex;
-  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  padding: 10px;
 }
 
 .browser-stage-head {
@@ -584,13 +603,23 @@ p {
 }
 
 .browser-toolbar {
-  grid-template-columns: repeat(4, 36px) minmax(180px, 1fr) auto auto;
+  grid-template-columns: repeat(4, 36px) minmax(120px, 1fr) auto 38px auto;
+  gap: 7px;
+}
+
+.browser-toolbar button,
+.browser-toolbar input {
+  min-height: 36px;
+}
+
+.browser-external-button {
+  width: 38px;
+  padding: 0;
 }
 
 .browser-auth-row,
 .browser-import-row {
-  flex: 0 0 auto;
-  margin: 10px 0;
+  margin: 8px 0;
   min-height: 42px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -618,10 +647,12 @@ p {
 }
 
 .spotify-webview {
-  display: block;
+  display: flex;
+  min-width: 0;
   width: 100%;
-  flex: 1 1 auto;
-  min-height: 360px;
+  height: 100%;
+  min-height: 0;
+  align-self: stretch;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #080d10;
@@ -1165,6 +1196,10 @@ dd {
     grid-template-rows: 58px auto minmax(0, 1fr);
   }
 
+  .spotify-workspace {
+    grid-template-rows: 58px minmax(0, 1fr);
+  }
+
   .topbar {
     padding: 0 18px;
     grid-template-columns: auto minmax(0, 1fr) auto;
@@ -1199,7 +1234,6 @@ dd {
     grid-template-columns: 1fr;
   }
 
-  .browser-toolbar,
   .browser-import-row,
   .input-row {
     grid-template-columns: 1fr;
@@ -1214,11 +1248,26 @@ dd {
   }
 
   .browser-toolbar {
-    grid-template-columns: repeat(4, 36px) minmax(0, 1fr);
+    grid-template-columns: repeat(4, 34px) minmax(90px, 1fr) auto 36px auto;
+    gap: 5px;
   }
 
-  .browser-toolbar .secondary {
-    grid-column: span 2;
+  .browser-toolbar .icon-button {
+    width: 34px;
+  }
+
+  .browser-toolbar button {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .browser-toolbar .browser-external-button {
+    width: 36px;
+    padding: 0;
+  }
+
+  .browser-import-button {
+    font-size: 12px;
   }
 
   .link-import-layout {
@@ -1287,6 +1336,10 @@ dd {
     grid-template-rows: 52px auto minmax(0, 1fr);
   }
 
+  .spotify-workspace {
+    grid-template-rows: 52px minmax(0, 1fr);
+  }
+
   .topbar {
     padding: 0 18px;
   }
@@ -1304,11 +1357,12 @@ dd {
     display: none;
   }
 
-  .browser-stage {
-    min-height: 390px;
+  .spotify-page-body {
+    padding: 8px 10px 10px;
   }
 
-  .spotify-webview {
-    min-height: 260px;
+  .spotify-page-layout {
+    grid-template-rows: minmax(420px, calc(100vh - 70px)) auto;
+    gap: 10px;
   }
 }
